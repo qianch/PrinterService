@@ -1,0 +1,27 @@
+.gitignore  
+*.rar 
+*.pdb
+packages/
+.vs/
+LogFiles/
+Log/
+IndexData/
+BigFileUpLoadStorage/
+ButtonLog/
+Log4Net/
+*.log 
+obj/
+bin/
+*.user
+*.suo  
+*.class 
+*.o 
+*.lo 
+*.la 
+*.al 
+.libs 
+*.so 
+*.so.[0-9]* 
+*.a 
+*.pyc 
+*.pyo __pycache__ 
