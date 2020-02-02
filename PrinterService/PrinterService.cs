@@ -69,7 +69,7 @@ namespace PrinterService
             {
                 error(ex);
                 MessageBox.Show(ex.StackTrace);
-                MessageBox.Show("请确认本机已安装Bartender 10.1以及以上的版本。");
+                MessageBox.Show("请确认本机已安装Bartender 10.1 以上的版本。");
                 Environment.Exit(Environment.ExitCode);
             }
         }
