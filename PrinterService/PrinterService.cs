@@ -33,7 +33,7 @@ namespace PrinterService
 
         private Thread skThread = null;
 
-        private int bufferSize = 1024 * 8 * 20; //20KB
+        private int bufferSize = 1024 * 8 * 100; //100KB
 
         private long countAll = 0L;
 
