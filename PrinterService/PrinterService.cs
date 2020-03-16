@@ -33,7 +33,7 @@ namespace PrinterService
 
         private Thread skThread = null;
 
-        private int bufferSize = 1024 * 8 ; //1KB
+        private int bufferSize = 5096;
 
         private long countAll = 0L;
 
@@ -233,6 +233,7 @@ namespace PrinterService
                     text3 = array2[2];
                     text4 = array2[3];
                 }
+
                 try
                 {
                     if (array2.Length == 4)
@@ -340,7 +341,9 @@ namespace PrinterService
                         "]"
                     }));
                 }
+
                 socket.Close();
+
             }
             this.count();
         }
@@ -606,15 +609,15 @@ namespace PrinterService
 
         private void PrinterService_FormClosing(object sender, FormClosingEventArgs e)
         {
-            //if (MessageBox.Show("是否确认退出程序？打印服务将会停止！", "退出", MessageBoxButtons.OKCancel, MessageBoxIcon.Question) == DialogResult.OK)
-            //{
-            //    base.Dispose();
-            //    base.Close();
-            //}
-            //else
-            //{
-            //    e.Cancel = true;
-            //}
+            if (MessageBox.Show("是否确认退出程序？打印服务将会停止！", "退出", MessageBoxButtons.OKCancel, MessageBoxIcon.Question) == DialogResult.OK)
+            {
+                base.Dispose();
+                base.Close();
+            }
+            else
+            {
+                e.Cancel = true;
+            }
             e.Cancel = true;
             WindowState = FormWindowState.Minimized;
         }
