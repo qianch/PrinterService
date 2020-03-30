@@ -617,9 +617,8 @@ namespace PrinterService
             else
             {
                 e.Cancel = true;
-            }
-            e.Cancel = true;
-            WindowState = FormWindowState.Minimized;
+                WindowState = FormWindowState.Minimized;
+            }            
         }
 
         private void miniMenu_Display_Click(object sender, EventArgs e)
