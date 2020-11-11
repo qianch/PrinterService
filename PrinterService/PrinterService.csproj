@@ -62,9 +62,12 @@
     </Reference>
     <Reference Include="System" />
     <Reference Include="Microsoft.CSharp" />
+    <Reference Include="System.configuration" />
     <Reference Include="System.Data" />
     <Reference Include="System.Deployment" />
     <Reference Include="System.Drawing" />
+    <Reference Include="System.Runtime.Serialization" />
+    <Reference Include="System.Web.Extensions" />
     <Reference Include="System.Windows.Forms" />
     <Reference Include="System.Xml" />
   </ItemGroup>
@@ -75,12 +78,14 @@
     <Compile Include="API.Designer.cs">
       <DependentUpon>API.cs</DependentUpon>
     </Compile>
+    <Compile Include="BarCodePrintRecord.cs" />
     <Compile Include="Dev.cs">
       <SubType>Form</SubType>
     </Compile>
     <Compile Include="Dev.Designer.cs">
       <DependentUpon>Dev.cs</DependentUpon>
     </Compile>
+    <Compile Include="JsonHelper.cs" />
     <Compile Include="PrinterService.cs">
       <SubType>Form</SubType>
     </Compile>

@@ -1,8 +1,7 @@
-﻿using PrinterService.Properties;
-using Seagull.BarTender.Print;
+﻿using Seagull.BarTender.Print;
 using Seagull.BarTender.Print.Database;
 using System;
-using System.ComponentModel;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Printing;
@@ -12,6 +11,7 @@ using System.Net.Sockets;
 using System.Text;
 using System.Threading;
 using System.Windows.Forms;
+using System.Linq;
 
 namespace PrinterService
 {
@@ -208,9 +208,16 @@ namespace PrinterService
                     }
                     return;
                 }
-                string @string = Encoding.UTF8.GetString(array, 0, num);
-                string[] array2 = @string.Split(new char[] { ',' });
-                if (array2.Length != 2 && array2.Length != 4)
+
+                string printerContent = Encoding.UTF8.GetString(array, 0, num);
+
+                int length = printerContent.Length - printerContent.Replace(",", "").Length;//判断有多少个,
+
+                string textDBName = printerContent.Length > 8 ? printerContent.Substring(0, 2) : "";
+
+                bool flag = textDBName.Equals("db") || textDBName.Equals("yu");
+
+                if (!flag | length < 4)//三个,和db 如果,数量小于3，或者起始字符不等于db或者yu就报错
                 {
                     socket.Send(Encoding.UTF8.GetBytes("ERROR"));
                     this.countErr += 1L;
@@ -219,49 +226,52 @@ namespace PrinterService
                         "来源IP:",
                         socket.RemoteEndPoint,
                         ",错误的参数:",
-                        @string
+                        printerContent
                     }));
                     socket.Close();
                     return;
                 }
-                string text = array2[0];
-                string text2 = array2[1];
-                string text3 = "";
-                string text4 = "";
-                if (array2.Length == 4)
-                {
-                    text3 = array2[2];
-                    text4 = array2[3];
-                }
 
+
+                string[] array2 = printerContent.Split(new char[] { ',' });
+
+                string printerName = array2[1];
+                string btwFilePathName = array2[2];
+                int count = int.Parse(array2[3]);
+
+                int startindex = textDBName.Length + printerName.Length + btwFilePathName.Length + array2[3].Length + 4;
+                string textContent = printerContent.Substring(startindex, printerContent.Length - startindex);
                 try
                 {
-                    if (array2.Length == 4)
+
+                    if (!this.exist(printerName))
                     {
-                        if (!this.exist(text))
+                        this.countErrNotFound += 1L;
+                        socket.Send(Encoding.UTF8.GetBytes("20:找不到打印机(" + printerName + ")"));
+                        this.error(string.Concat(new object[]
                         {
-                            this.countErrNotFound += 1L;
-                            socket.Send(Encoding.UTF8.GetBytes("20:找不到打印机(" + text + ")"));
-                            this.error(string.Concat(new object[]
-                            {
                                 "来源IP:",
                                 socket.RemoteEndPoint,
                                 ",打印机:",
-                                text,
+                                printerName,
                                 ",打印模板:",
-                                text2,
+                                btwFilePathName,
                                 ",数据文件:",
-                                text3,
+                                textContent,
                                 ",文本数据库名称:",
-                                text4,
+                                textDBName,
                                 ",打印失败, 错误:找不到打印机[",
-                                text,
+                                printerName,
                                 "]"
-                            }));
-                        }
-                        else
-                        {
-                            this.print(text, text2, text3, text4);
+                        }));
+                        socket.Close();
+                        return;
+                    }
+
+                    switch (textDBName)
+                    {
+                        case "db":
+                            this.print(printerName, btwFilePathName, textContent, textDBName, count);
                             socket.Send(Encoding.UTF8.GetBytes("10:SUCCESS"));
                             this.countSuc += 1L;
                             this.info(string.Concat(new object[]
@@ -269,50 +279,37 @@ namespace PrinterService
                                 "来源IP:",
                                 socket.RemoteEndPoint,
                                 ",打印机:",
-                                text,
+                                printerName,
                                 ",打印模板:",
-                                text2,
+                                btwFilePathName,
                                 ",数据文件:",
-                                text3,
+                                textContent,
                                 ",文本数据库名称:",
-                                text4,
+                                textDBName,
                                 ",打印成功"
                             }));
-                        }
-                    }
-                    else
-                    {
-                        if (!this.exist(text))
-                        {
-                            this.countErrNotFound += 1L;
-                            socket.Send(Encoding.UTF8.GetBytes("20:找不到打印机(" + text + ")"));
-                            this.error(string.Concat(new object[]
+                            break;
+                        case "yu":
+
+                            List<BarCodePrintRecord> listBarCodePrintRecord = JsonHelper.JsonDeserialize<List<BarCodePrintRecord>>(textContent);
+                            this.print(printerName, btwFilePathName, listBarCodePrintRecord, textDBName, count);
+                            socket.Send(Encoding.UTF8.GetBytes("10:SUCCESS"));
+                            this.countSuc += 1L;
+                            this.info(string.Concat(new object[]
                             {
                                 "来源IP:",
                                 socket.RemoteEndPoint,
                                 ",打印机:",
-                                text,
-                                ",打印文件:",
-                                text2,
-                                ",打印失败,错误:找不到打印机 [",
-                                text,
-                                "]"
+                                printerName,
+                                ",打印模板:",
+                                btwFilePathName,
+                                ",数据文件:",
+                                textContent,
+                                ",文本数据库名称:",
+                                textDBName,
+                                ",打印成功"
                             }));
-                            return;
-                        }
-                        this.print(text, text2);
-                        socket.Send(Encoding.UTF8.GetBytes("10:SUCCESS"));
-                        this.countSuc += 1L;
-                        this.info(string.Concat(new object[]
-                        {
-                            "来源IP:",
-                            socket.RemoteEndPoint,
-                            ",打印机:",
-                            text,
-                            ",打印文件:",
-                            text2,
-                            ",打印成功"
-                        }));
+                            break;
                     }
                 }
                 catch (Exception ex)
@@ -333,25 +330,51 @@ namespace PrinterService
                         "来源IP:",
                         socket.RemoteEndPoint,
                         ",打印机:",
-                        text,
+                        printerName,
                         ",打印文件:",
-                        text2,
+                        btwFilePathName,
                         ",打印失败,错误: [",
                         ex.Message,
                         "]"
                     }));
                 }
-
-                socket.Close();
-
+                finally
+                {
+                    this.count();
+                    socket.Close();
+                }
             }
-            this.count();
+            //this.count();
         }
 
-        private void print(string printerName, string btwFilePathName, string textFilePathName, string textDBName)
+        private void print(string printerName, string btwFilePathName, List<BarCodePrintRecord> listBarCodePrintRecord, string textDBName,int count)
         {
             this.format = this.engine.Documents.Open(btwFilePathName);
-            this.format.PrintSetup.IdenticalCopiesOfLabel = 1;
+            this.format.PrintSetup.IdenticalCopiesOfLabel = count;
+            this.format.PrintSetup.NumberOfSerializedLabels = 1;
+            
+            foreach (BarCodePrintRecord barCodePrintRecord in listBarCodePrintRecord)
+            {
+                string key = barCodePrintRecord.KEY.Replace("\r", "").Replace("\n", "") + "\r\n";
+
+                if (format.SubStrings.Any(p => p.Name == key))
+                {
+                    format.SubStrings[key].Value = barCodePrintRecord.VALUE;
+                }
+                else if (format.SubStrings.Any(p => p.Name == barCodePrintRecord.KEY))
+                {
+                    format.SubStrings[barCodePrintRecord.KEY].Value = barCodePrintRecord.VALUE;
+                }
+            }
+            
+            this.format.PrintSetup.PrinterName = printerName;
+            this.format.Print();
+        }
+
+        private void print(string printerName, string btwFilePathName, string textFilePathName, string textDBName,int count)
+        {
+            this.format = this.engine.Documents.Open(btwFilePathName);
+            this.format.PrintSetup.IdenticalCopiesOfLabel = count;
             this.format.PrintSetup.NumberOfSerializedLabels = 1;
 
             string[] textFileArray = textFilePathName.Split('@');
