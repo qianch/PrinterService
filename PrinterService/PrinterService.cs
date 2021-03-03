@@ -12,6 +12,8 @@ using System.Text;
 using System.Threading;
 using System.Windows.Forms;
 using System.Linq;
+using MySql.Data.MySqlClient;
+using System.Configuration;
 
 namespace PrinterService
 {
@@ -22,16 +24,8 @@ namespace PrinterService
         private delegate void ConsoleCallback2(Exception e);
 
         private delegate void StatisticCallback();
-
-        private Engine engine = null;
-
-        private LabelFormatDocument format = null;
-
-        private Socket sk;
-
-        private int port = 7777;
-
-        private Thread skThread = null;
+        
+        private Dictionary<string, Printer>listPrinter;
 
         private int bufferSize = 5096;
 
@@ -91,8 +85,8 @@ namespace PrinterService
             this.start.Enabled = false;
             this.stop.Enabled = false;
             this.restart.Enabled = false;
-            this.initEngine();
             this.initSocket();
+            this.initEngine();
             this.stop.Enabled = true;
             this.restart.Enabled = true;
         }
@@ -100,19 +94,55 @@ namespace PrinterService
         private void initEngine()
         {
             this.info("正在启动打印服务...");
-            this.engine = new Engine(true);
+            foreach (var p in listPrinter)
+            {
+                p.Value.engine = new Engine(true);
+            }
             this.info("打印服务已启动");
         }
 
         private void initSocket()
         {
-            this.sk = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
-            IPEndPoint localEP = new IPEndPoint(IPAddress.Any, this.port);
-            this.sk.Bind(localEP);
-            this.sk.Listen(100);
-            this.skThread = new Thread(new ThreadStart(this.listen));
-            this.skThread.IsBackground = true;
-            this.skThread.Start();
+            listPrinter = new Dictionary<string, Printer>();
+            Printer printer = new Printer();
+            printer.name = "默认原始打印机";
+            printer.port = 7777;
+            listPrinter.Add(printer.name, printer);
+
+            string constructorString = ConfigurationSettings.AppSettings["ConnectionString"].ToString();
+            string printerTableSql = ConfigurationSettings.AppSettings["GetPrinterTable"].ToString();
+            MySqlConnection myConnnect = new MySqlConnection(constructorString);
+            myConnnect.Open();
+            MySqlCommand comm = new MySqlCommand(printerTableSql, myConnnect);
+            MySqlDataReader mySqlReader = comm.ExecuteReader();
+            while (mySqlReader.Read())
+            {
+                string name = mySqlReader["printername"].ToString();
+                string port =Convert.ToString ( mySqlReader["port"]);
+                if(string.IsNullOrEmpty(port))
+                {
+                    continue;
+                }    
+                printer = new Printer();
+                printer.name = name;
+                printer.port = Convert.ToInt32(port);
+                listPrinter.Add(printer.name, printer);
+
+            }
+            myConnnect.Close();
+
+            foreach (var p in listPrinter)
+            {
+                p.Value.sk = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+                IPEndPoint localEP = new IPEndPoint(IPAddress.Any, p.Value.port);
+                p.Value.sk.Bind(localEP);
+                p.Value.sk.Listen(100);
+                p.Value.skThread = new Thread(new ParameterizedThreadStart(this.listen));
+                p.Value.skThread.IsBackground = true;
+                p.Value.skThread.Start(p.Key);
+                this.info("打印机"+p.Key+"的端口线程Port:" + p.Value.port+"已经启动!");
+            }
+            
             this.info("打印通信已启动,等待连接...");
         }
 
@@ -128,8 +158,12 @@ namespace PrinterService
 
         private void shutdownEngine()
         {
-            this.engine.Stop();
-            this.engine.Dispose();
+            foreach (var p in listPrinter)
+            {
+                p.Value.engine.Stop();
+                p.Value.engine.Dispose();
+            }
+
             this.info("打印服务已关闭");
         }
 
@@ -137,8 +171,11 @@ namespace PrinterService
         {
             try
             {
-                this.sk.Close();
-                this.skThread.Abort();
+                foreach (var p in listPrinter)
+                {
+                    p.Value.sk.Close();
+                    p.Value.skThread.Abort();
+                }
                 this.info("打印通信已关闭");
             }
             catch (Exception ex)
@@ -153,13 +190,13 @@ namespace PrinterService
             this.start_Click(null, null);
         }
 
-        private void listen()
+        private void listen(object objPrintername)
         {
             while (true)
             {
                 try
                 {
-                    Socket parameter = this.sk.Accept();
+                    Socket socket = listPrinter[objPrintername.ToString()].sk.Accept();
                     this.countAll += 1L;
                     if (this.countAll == 2147483647L)
                     {
@@ -172,7 +209,7 @@ namespace PrinterService
                     new Thread(parameterizedThreadStart)
                     {
                         IsBackground = true
-                    }.Start(parameter);
+                    }.Start(socket);
                 }
                 catch (Exception ex)
                 {
@@ -181,9 +218,9 @@ namespace PrinterService
             }
         }
 
-        private void recv(object param)
+        private void recv(object objSocket)
         {
-            Socket socket = param as Socket;
+            Socket socket = objSocket as Socket;
             if (socket.Poll(-1, SelectMode.SelectRead))
             {
                 byte[] array = new byte[this.bufferSize];
@@ -267,36 +304,21 @@ namespace PrinterService
                         socket.Close();
                         return;
                     }
-
+                    Result result = Result.Failure;
                     switch (textDBName)
                     {
                         case "db":
-                            this.print(printerName, btwFilePathName, textContent, textDBName, count);
-                            socket.Send(Encoding.UTF8.GetBytes("10:SUCCESS"));
-                            this.countSuc += 1L;
-                            this.info(string.Concat(new object[]
-                            {
-                                "来源IP:",
-                                socket.RemoteEndPoint,
-                                ",打印机:",
-                                printerName,
-                                ",打印模板:",
-                                btwFilePathName,
-                                ",数据文件:",
-                                textContent,
-                                ",文本数据库名称:",
-                                textDBName,
-                                ",打印成功"
-                            }));
+                            result = this.print(printerName, btwFilePathName, textContent, textDBName, count);
                             break;
                         case "yu":
 
                             List<BarCodePrintRecord> listBarCodePrintRecord = JsonHelper.JsonDeserialize<List<BarCodePrintRecord>>(textContent);
-                            this.print(printerName, btwFilePathName, listBarCodePrintRecord, textDBName, count);
-                            socket.Send(Encoding.UTF8.GetBytes("10:SUCCESS"));
-                            this.countSuc += 1L;
-                            this.info(string.Concat(new object[]
-                            {
+                            result = this.print(printerName, btwFilePathName, listBarCodePrintRecord, textDBName, count);
+                            break;
+                    }
+
+                    string message = string.Concat(new object[]
+                    {
                                 "来源IP:",
                                 socket.RemoteEndPoint,
                                 ",打印机:",
@@ -306,9 +328,25 @@ namespace PrinterService
                                 ",数据文件:",
                                 textContent,
                                 ",文本数据库名称:",
-                                textDBName,
-                                ",打印成功"
-                            }));
+                                textDBName
+                    });
+
+                    switch (result)
+                    {
+                        case Result.Success:
+                            socket.Send(Encoding.UTF8.GetBytes("10:SUCCESS"));
+                            this.countSuc += 1L;
+                            this.info(message + ",打印成功");
+                            break;
+                        case Result.Failure:
+                            socket.Send(Encoding.UTF8.GetBytes("21:Failure"));
+                            this.countErr += 1L;
+                            this.error(message + ",打印失败(Failure)");
+                            break;
+                        case Result.Timeout:
+                            socket.Send(Encoding.UTF8.GetBytes("21:Timeout"));
+                            this.countErr += 1L;
+                            this.error(message + ",打印超时(Timeout)");
                             break;
                     }
                 }
@@ -344,38 +382,42 @@ namespace PrinterService
                     socket.Close();
                 }
             }
-            //this.count();
+
         }
 
-        private void print(string printerName, string btwFilePathName, List<BarCodePrintRecord> listBarCodePrintRecord, string textDBName,int count)
+        private Result print(string printerName, string btwFilePathName, List<BarCodePrintRecord> listBarCodePrintRecord, string textDBName, int count)
         {
-            this.format = this.engine.Documents.Open(btwFilePathName);
-            this.format.PrintSetup.IdenticalCopiesOfLabel = count;
-            this.format.PrintSetup.NumberOfSerializedLabels = 1;
-            
+            Printer printer = listPrinter[printerName];
+
+            printer.format = printer.engine.Documents.Open(btwFilePathName);
+            printer.format.PrintSetup.IdenticalCopiesOfLabel = count;
+            printer.format.PrintSetup.NumberOfSerializedLabels = 1;
+
             foreach (BarCodePrintRecord barCodePrintRecord in listBarCodePrintRecord)
             {
                 string key = barCodePrintRecord.KEY.Replace("\r", "").Replace("\n", "") + "\r\n";
 
-                if (format.SubStrings.Any(p => p.Name == key))
+                if (printer.format.SubStrings.Any(p => p.Name == key))
                 {
-                    format.SubStrings[key].Value = barCodePrintRecord.VALUE;
+                    printer.format.SubStrings[key].Value = barCodePrintRecord.VALUE;
                 }
-                else if (format.SubStrings.Any(p => p.Name == barCodePrintRecord.KEY))
+                else if (printer.format.SubStrings.Any(p => p.Name == barCodePrintRecord.KEY))
                 {
-                    format.SubStrings[barCodePrintRecord.KEY].Value = barCodePrintRecord.VALUE;
+                    printer.format.SubStrings[barCodePrintRecord.KEY].Value = barCodePrintRecord.VALUE;
                 }
             }
-            
-            this.format.PrintSetup.PrinterName = printerName;
-            this.format.Print();
+
+            printer.format.PrintSetup.PrinterName = printerName;
+            return printer.format.Print();
         }
 
-        private void print(string printerName, string btwFilePathName, string textFilePathName, string textDBName,int count)
+        private Result print(string printerName, string btwFilePathName, string textFilePathName, string textDBName, int count)
         {
-            this.format = this.engine.Documents.Open(btwFilePathName);
-            this.format.PrintSetup.IdenticalCopiesOfLabel = count;
-            this.format.PrintSetup.NumberOfSerializedLabels = 1;
+            Printer printer = listPrinter[printerName];
+
+            printer.format = printer.engine.Documents.Open(btwFilePathName);
+            printer.format.PrintSetup.IdenticalCopiesOfLabel = count;
+            printer.format.PrintSetup.NumberOfSerializedLabels = 1;
 
             string[] textFileArray = textFilePathName.Split('@');
             var fileUrl = textFileArray[0];
@@ -385,21 +427,12 @@ namespace PrinterService
                 File.WriteAllText(fileUrl, textFileArray[1]);
             }
 
-            ((TextFile)this.format.DatabaseConnections[textDBName]).FileName = fileUrl;
-            this.format.PrintSetup.PrinterName = printerName;
-            this.format.Print();
+            ((TextFile)printer.format.DatabaseConnections[textDBName]).FileName = fileUrl;
+            printer.format.PrintSetup.PrinterName = printerName;
+            return printer.format.Print();
         }
 
-        private bool print(string printerName, string btwFilePathName)
-        {
-            this.format = this.engine.Documents.Open(btwFilePathName);
-            this.format.PrintSetup.Cache.FlushInterval = CacheFlushInterval.Never;
-            this.format.PrintSetup.IdenticalCopiesOfLabel = 1;
-            this.format.PrintSetup.NumberOfSerializedLabels = 1;
-            this.format.PrintSetup.PrinterName = printerName;
-            this.format.Print();
-            return true;
-        }
+       
 
         private bool exist(string printer)
         {
@@ -634,6 +667,8 @@ namespace PrinterService
         {
             if (MessageBox.Show("是否确认退出程序？打印服务将会停止！", "退出", MessageBoxButtons.OKCancel, MessageBoxIcon.Question) == DialogResult.OK)
             {
+                this.shutdownEngine();
+                this.shutdownSocket();
                 base.Dispose();
                 base.Close();
             }
